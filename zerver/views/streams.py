@@ -98,7 +98,7 @@ from zerver.lib.user_groups import (
     parse_group_setting_value,
     validate_group_setting_value_change,
 )
-from zerver.lib.user_topics import get_users_with_user_topic_visibility_policy
+from zerver.lib.user_topics import get_users_with_user_topic_visibility_policy, get_user_topics
 from zerver.lib.users import access_bot_by_id, bulk_access_users_by_email, bulk_access_users_by_id
 from zerver.lib.utils import assert_is_not_none
 from zerver.models import Realm, Stream, UserMessage, UserProfile, UserTopic
@@ -1009,6 +1009,57 @@ def get_topics_backend(
         )
 
     return json_success(request, data=dict(topics=result))
+
+
+#edite esto
+
+#@typed_endpoint
+#def get_stream_topic_count(request: HttpRequest, user: UserProfile, *, stream_id: int) -> HttpResponse:
+#    try:
+#        response_data = {
+#            "stream_id": stream_id,
+#            "topic_count": 1  # Valor fijo
+#        }
+
+#        print(f"Devolviendo topic_count fijo para el stream {stream_id}: 1")
+#        return json_success(request, data=response_data)
+
+#    except Exception as e:
+#        print(f"Error al procesar la solicitud: {e}")
+#        return json_error("Internal server error", status=500)
+
+@typed_endpoint
+def get_stream_topic_count(request: HttpRequest, maybe_user: UserProfile | object, *, stream_id: int) -> HttpResponse:
+    # Verificamos si el usuario está autenticado
+    if not getattr(maybe_user, "is_authenticated", False) or not maybe_user.is_authenticated:
+        return json_error("User not authenticated", status=401)
+    
+    # En este punto, sabemos que el usuario es un UserProfile
+    user_profile: UserProfile = maybe_user
+
+    try:
+        # Obtener los topics del usuario (incluyendo el nombre del stream)
+        topics = get_user_topics(user_profile, include_deactivated=False, include_stream_name=True)
+        # Filtrar para los topics asociados al stream_id dado
+        topic_count = sum(1 for topic in topics if topic["stream_id"] == stream_id)
+        
+        debug_info = {
+            "stream_id": stream_id,
+            "topic_count": topic_count,
+            "topics": topics,  # Información completa de los topics para debug
+        }
+        
+        print(f"[DEBUG] Retornando debug_info: {debug_info}")
+        # Devuelve la información de debug en el campo "debug" del JSON de respuesta
+        return json_success(request, data={"debug": debug_info})
+    
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Error en get_stream_topic_count: {e}")
+        traceback.print_exc()
+        return json_error("Internal server error", status=500)
+
+
 
 
 @require_realm_admin

@@ -35,6 +35,7 @@ import * as stream_settings_api from "./stream_settings_api.ts";
 import * as stream_settings_components from "./stream_settings_components.ts";
 import * as stream_settings_ui from "./stream_settings_ui.ts";
 import * as stream_topic_history from "./stream_topic_history.ts";
+import * as stream_topic_history_util from "./stream_topic_history_util.ts";//edite esta linea
 import * as sub_store from "./sub_store.ts";
 import * as ui_report from "./ui_report.ts";
 import * as ui_util from "./ui_util.ts";
@@ -42,6 +43,8 @@ import * as unread from "./unread.ts";
 import * as unread_ops from "./unread_ops.ts";
 import {user_settings} from "./user_settings.ts";
 import * as util from "./util.ts";
+import * as topic_list_data from "./topic_list_data.ts"; //edite esta linea
+import { get } from "lodash";
 
 // In this module, we manage stream popovers
 // that pop up from the left sidebar.
@@ -92,9 +95,8 @@ function stream_popover_sub(
     }
     return sub;
 }
-
-function build_stream_popover(opts: {elt: HTMLElement; stream_id: number}): void {
-    const {elt, stream_id} = opts;
+async function build_stream_popover(opts: { elt: HTMLElement; stream_id: number }): Promise<void> {
+    const { elt, stream_id } = opts;
 
     // This will allow the user to close the popover by clicking
     // on the reference element if the popover is already open.
@@ -109,117 +111,129 @@ function build_stream_popover(opts: {elt: HTMLElement; stream_id: number}): void
     const stream_unread = unread.unread_count_info_for_stream(stream_id);
     const stream_unread_count = stream_unread.unmuted_count + stream_unread.muted_count;
     const has_unread_messages = stream_unread_count > 0;
-    const content = render_left_sidebar_stream_actions_popover({
-        stream: {
-            ...sub_store.get(stream_id),
-            url: browser_history.get_full_url(stream_hash),
-        },
-        has_unread_messages,
-        show_go_to_channel_feed,
-    });
 
-    popover_menus.toggle_popover_menu(elt, {
-        // Add a delay to separate `hideOnClick` and `onShow` so that
-        // `onShow` is called after `hideOnClick`.
-        // See https://github.com/atomiks/tippyjs/issues/230 for more details.
-        delay: [100, 0],
-        ...left_sidebar_tippy_options,
-        onCreate(instance) {
-            const $popover = $(instance.popper);
-            $popover.addClass("stream-popover-root");
-            instance.setContent(ui_util.parse_html(content));
-        },
-        onMount(instance) {
-            const $popper = $(instance.popper);
-            popover_menus.popover_instances.stream_actions_popover = instance;
-            ui_util.show_left_sidebar_menu_icon(elt);
+    let topicCount = "0";  // Valor por defecto si no se consigue el topicCount
 
-            // Go to channel feed instead of first topic.
-            $popper.on("click", ".stream-popover-go-to-channel-feed", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const sub = stream_popover_sub(e);
-                hide_stream_popover(instance);
-                message_view.show(
-                    [
-                        {
-                            operator: "stream",
-                            operand: sub.stream_id.toString(),
-                        },
-                    ],
-                    {trigger: "stream-popover"},
-                );
-            });
+    try {
+        // Obtenemos el topicCount de manera asincrónica utilizando channel.get
+        topicCount = await stream_topic_history_util.get_stream_topic_count(stream_id);  // Usamos async/await
 
-            // Stream settings
-            $popper.on("click", ".open_stream_settings", (e) => {
-                const sub = stream_popover_sub(e);
-                hide_stream_popover(instance);
+        // Creamos el contenido del popover con el topicCount obtenido
+        const content = render_left_sidebar_stream_actions_popover({
+            stream: {
+                ...sub_store.get(stream_id),
+                url: browser_history.get_full_url(stream_hash),
+                get_subscribers_count: stream_data.get_subscriber_count(stream_id),
+                get_topics: topicCount,  // Usamos el topicCount obtenido
+                topic_count : topic_list_data.get_list_info(stream_id, false, "").num_possible_topics,
+            },
+            has_unread_messages,
+            show_go_to_channel_feed,
+        });
 
-                // Admin can change any stream's name & description either stream is public or
-                // private, subscribed or unsubscribed.
-                const can_change_stream_permissions =
-                    stream_data.can_change_permissions_requiring_metadata_access(sub);
-                let stream_edit_hash = hash_util.channels_settings_edit_url(sub, "general");
-                if (!can_change_stream_permissions) {
-                    stream_edit_hash = hash_util.channels_settings_edit_url(sub, "personal");
-                }
-                browser_history.go_to_location(stream_edit_hash);
-            });
+        // Ahora que tenemos el contenido, mostramos el popover
+        popover_menus.toggle_popover_menu(elt, {
+            delay: [100, 0],
+            ...left_sidebar_tippy_options,
+            onCreate(instance) {
+                const $popover = $(instance.popper);
+                $popover.addClass("stream-popover-root");
+                instance.setContent(ui_util.parse_html(content));
+            },
+            onMount(instance) {
+                const $popper = $(instance.popper);
+                popover_menus.popover_instances.stream_actions_popover = instance;
+                ui_util.show_left_sidebar_menu_icon(elt);
 
-            // Pin/unpin
-            $popper.on("click", ".pin_to_top", (e) => {
-                const sub = stream_popover_sub(e);
-                hide_stream_popover(instance);
-                stream_settings_ui.toggle_pin_to_top_stream(sub);
-                e.stopPropagation();
-            });
-
-            // Mark all messages in stream as read
-            $popper.on("click", ".mark_stream_as_read", (e) => {
-                const sub = stream_popover_sub(e);
-                hide_stream_popover(instance);
-                unread_ops.mark_stream_as_read(sub.stream_id);
-                e.stopPropagation();
-            });
-
-            // Mark all messages in stream as unread
-            $popper.on("click", ".mark_stream_as_unread", (e) => {
-                const sub = stream_popover_sub(e);
-                hide_stream_popover(instance);
-                unread_ops.mark_stream_as_unread(sub.stream_id);
-                e.stopPropagation();
-            });
-
-            // Mute/unmute
-            $popper.on("click", ".toggle_stream_muted", (e) => {
-                const sub = stream_popover_sub(e);
-                hide_stream_popover(instance);
-                stream_settings_api.set_stream_property(sub, {
-                    property: "is_muted",
-                    value: !sub.is_muted,
+                // Go to channel feed instead of first topic.
+                $popper.on("click", ".stream-popover-go-to-channel-feed", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const sub = stream_popover_sub(e);
+                    hide_stream_popover(instance);
+                    message_view.show(
+                        [
+                            {
+                                operator: "stream",
+                                operand: sub.stream_id.toString(),
+                            },
+                        ],
+                        { trigger: "stream-popover" }
+                    );
                 });
-                e.stopPropagation();
-            });
 
-            // Unsubscribe
-            $popper.on("click", ".popover_sub_unsub_button", (e) => {
-                const sub = stream_popover_sub(e);
+                // Stream settings
+                $popper.on("click", ".open_stream_settings", (e) => {
+                    const sub = stream_popover_sub(e);
+                    hide_stream_popover(instance);
+
+                    // Admin can change any stream's name & description either stream is public or
+                    // private, subscribed or unsubscribed.
+                    const can_change_stream_permissions =
+                        stream_data.can_change_permissions_requiring_metadata_access(sub);
+                    let stream_edit_hash = hash_util.channels_settings_edit_url(sub, "general");
+                    if (!can_change_stream_permissions) {
+                        stream_edit_hash = hash_util.channels_settings_edit_url(sub, "personal");
+                    }
+                    browser_history.go_to_location(stream_edit_hash);
+                });
+
+                // Pin/unpin
+                $popper.on("click", ".pin_to_top", (e) => {
+                    const sub = stream_popover_sub(e);
+                    hide_stream_popover(instance);
+                    stream_settings_ui.toggle_pin_to_top_stream(sub);
+                    e.stopPropagation();
+                });
+
+                // Mark all messages in stream as read
+                $popper.on("click", ".mark_stream_as_read", (e) => {
+                    const sub = stream_popover_sub(e);
+                    hide_stream_popover(instance);
+                    unread_ops.mark_stream_as_read(sub.stream_id);
+                    e.stopPropagation();
+                });
+
+                // Mark all messages in stream as unread
+                $popper.on("click", ".mark_stream_as_unread", (e) => {
+                    const sub = stream_popover_sub(e);
+                    hide_stream_popover(instance);
+                    unread_ops.mark_stream_as_unread(sub.stream_id);
+                    e.stopPropagation();
+                });
+
+                // Mute/unmute
+                $popper.on("click", ".toggle_stream_muted", (e) => {
+                    const sub = stream_popover_sub(e);
+                    hide_stream_popover(instance);
+                    stream_settings_api.set_stream_property(sub, {
+                        property: "is_muted",
+                        value: !sub.is_muted,
+                    });
+                    e.stopPropagation();
+                });
+
+                // Unsubscribe
+                $popper.on("click", ".popover_sub_unsub_button", (e) => {
+                    const sub = stream_popover_sub(e);
+                    hide_stream_popover(instance);
+                    stream_settings_components.sub_or_unsub(sub);
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+
+                $popper.on("click", ".copy_stream_link", (e) => {
+                    assert(e.currentTarget instanceof HTMLElement);
+                    clipboard_handler.popover_copy_link_to_clipboard(instance, $(e.currentTarget));
+                });
+            },
+            onHidden(instance) {
                 hide_stream_popover(instance);
-                stream_settings_components.sub_or_unsub(sub);
-                e.preventDefault();
-                e.stopPropagation();
-            });
-
-            $popper.on("click", ".copy_stream_link", (e) => {
-                assert(e.currentTarget instanceof HTMLElement);
-                clipboard_handler.popover_copy_link_to_clipboard(instance, $(e.currentTarget));
-            });
-        },
-        onHidden(instance) {
-            hide_stream_popover(instance);
-        },
-    });
+            },
+        });
+    } catch (error) {
+        console.error("Error al obtener el topic count:", error);
+    }
 }
 
 async function get_message_placement_from_server(

@@ -175,6 +175,7 @@ from zerver.views.streams import (
     get_streams_backend,
     get_subscribers_backend,
     get_topics_backend,
+    get_stream_topic_count,
     json_get_stream_id,
     list_subscriptions_backend,
     remove_default_stream,
@@ -486,6 +487,9 @@ v1_api_and_json_patterns = [
     rest_path(
         "users/me/<int:stream_id>/topics", GET=(get_topics_backend, {"allow_anonymous_user_web"})
     ),
+    rest_path(
+        "users/me/<int:stream_id>/topic_count", GET=(get_stream_topic_count, {"allow_anonymous_user_web"})
+    ),#edite esto
     # streams -> zerver.views.streams
     # (this API is only used externally)
     rest_path("streams", GET=get_streams_backend),

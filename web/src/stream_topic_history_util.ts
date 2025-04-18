@@ -3,6 +3,7 @@ import {z} from "zod";
 
 import * as channel from "./channel.ts";
 import * as stream_topic_history from "./stream_topic_history.ts";
+import { data } from "jquery";
 
 const stream_topic_history_response_schema = z.object({
     topics: z.array(
@@ -40,6 +41,36 @@ export function get_server_history(stream_id: number, on_success: () => void): v
         },
     });
 }
+
+
+
+
+
+
+//edite esto
+// Función para obtener el topic_count usando channel.get
+export async function get_stream_topic_count(stream_id: number): Promise<string> {
+    const url = `/json/users/me/${stream_id}/topic_count`;  // URL basada en tu backend
+
+    return new Promise((resolve, reject) => {
+        channel.get({
+            url,
+            success(raw_data) {
+                const topicCount = String(raw_data.debug.topic_count);  // Convertir topic_count a string
+                console.log(`Respuesta recibida: topic_count para el stream ${stream_id} es ${topicCount}`);
+                console.log(raw_data);
+                resolve(topicCount);  // Llamamos a resolve con el topicCount obtenido
+            },
+            error() {
+                console.error("Hubo un error al obtener el topic_count");
+                reject("0");  // Llamamos a reject con un valor por defecto en caso de error
+            },
+        });
+    });
+}
+
+
+
 
 export function update_topic_last_message_id(
     stream_id: number,
